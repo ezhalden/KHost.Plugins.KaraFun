@@ -1,0 +1,57 @@
+root = true
+
+# The rules KHost enforces, applied here too — a plugin runs in-process with the host and gets the
+# same scrutiny. Kept in step with KHost's .editorconfig by hand; there is no shared file, because
+# this repo builds against published packages rather than a checkout of that one.
+
+[*.cs]
+
+# Code that cannot be right
+dotnet_diagnostic.CA2011.severity = error
+dotnet_diagnostic.CA2013.severity = error
+dotnet_diagnostic.CA2014.severity = error
+dotnet_diagnostic.CA2017.severity = error
+dotnet_diagnostic.CA2021.severity = error
+dotnet_diagnostic.CA2241.severity = error
+dotnet_diagnostic.CA2242.severity = error
+dotnet_diagnostic.CA2245.severity = error
+dotnet_diagnostic.CA2246.severity = error
+dotnet_diagnostic.CA2248.severity = error
+dotnet_diagnostic.CA1806.severity = error
+
+# Exceptions
+dotnet_diagnostic.CA2200.severity = error
+dotnet_diagnostic.CA2201.severity = error
+dotnet_diagnostic.CA2207.severity = error
+dotnet_diagnostic.CA2208.severity = error
+dotnet_diagnostic.CA2219.severity = error
+dotnet_diagnostic.CA1065.severity = error
+dotnet_diagnostic.CA2264.severity = error
+
+# Async and disposal
+dotnet_diagnostic.CA2012.severity = error
+dotnet_diagnostic.CA2016.severity = error
+dotnet_diagnostic.CA2215.severity = error
+
+# API shape
+dotnet_diagnostic.CA1725.severity = error
+dotnet_diagnostic.CA1050.severity = error
+dotnet_diagnostic.CA1068.severity = error
+dotnet_diagnostic.CA1507.severity = error
+dotnet_diagnostic.CA1710.severity = error
+dotnet_diagnostic.CA2251.severity = error
+dotnet_diagnostic.CA2249.severity = error
+
+# Performance
+dotnet_diagnostic.CA1854.severity = error
+dotnet_diagnostic.CA1862.severity = error
+
+# Security. Where a weak hash is the API's requirement rather than a choice, the call site
+# suppresses CA5351 with a justification — see PasswordService — rather than the rule being
+# switched off for the whole repo.
+dotnet_diagnostic.CA2100.severity = error
+dotnet_diagnostic.CA3075.severity = error
+dotnet_diagnostic.CA5350.severity = error
+dotnet_diagnostic.CA5351.severity = error
+dotnet_diagnostic.CA5359.severity = error
+dotnet_diagnostic.CA5364.severity = error

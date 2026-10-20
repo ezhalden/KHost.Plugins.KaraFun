@@ -1,0 +1,49 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- A build machine's absolute paths otherwise land in the dll's debug directory. -->
+    <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
+    <Version>1.0.0</Version>
+    <!-- A class library leaves its NuGet dependencies in the package cache and lists them in
+         .deps.json. A plugin is loaded from a folder the host copies around, so its dependencies
+         have to be in the output beside the entry assembly for AssemblyDependencyResolver to
+         find them anywhere but this machine. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The published contracts, not a sibling checkout: this repo used to fail to build whenever
+         the KHost checkout beside it changed branch, and an outside author has no such checkout at
+         all. See KHost's build/pack-contracts.sh for the local feed while these still move. Both
+         are MIT, so no PolyForm code reaches what this redistributes. -->
+    <!-- Plain references: the package's own targets keep these two out of this project's output,
+         so nothing downstream — a test project especially — loses them. -->
+    <PackageReference Include="KHost.Abstractions" Version="0.61.0" />
+    <PackageReference Include="KHost.Common" Version="0.61.0" />
+
+    <!-- The host has this loaded, so a shipped copy is never the one used. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The remote's wire format is Protocol Buffers, so the schema is transcribed and compiled
+         rather than hand-decoded: the field numbers are not in declaration order, and one wrong
+         number is a bug no test written against our own encoder would ever catch.
+         Grpc.Tools runs protoc at build time only (PrivateAssets), so nothing of it ships. -->
+    <PackageReference Include="Google.Protobuf" Version="3.33.1" />
+    <PackageReference Include="Grpc.Tools" Version="2.72.0" PrivateAssets="All" />
+    <Protobuf Include="Client/Kcs/kcs.proto" GrpcServices="None" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="KHost.Plugins.KaraFun.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="manifest.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

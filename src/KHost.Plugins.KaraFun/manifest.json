@@ -1,0 +1,46 @@
+{
+  "id": "e9a7a203-2aae-4f30-b320-e39942a286ed",
+  "name": "KaraFun Integration",
+  "version": "1.0.0",
+  "author": "Ezra Halden",
+  "description": "Sign in to KaraFun: search and queue its catalog, and open guest sign-up on the screen.",
+  "icon": "search",
+  "entryAssembly": "KHost.Plugins.KaraFun.dll",
+  "apiVersion": 8,
+  "settings": [
+    {
+      "key": "remotePickLimit",
+      "type": "int",
+      "section": "Guest remote",
+      "label": "Requests per window",
+      "description": "Song queue requests allowed per window. 0 for unlimited.",
+      "default": 5
+    },
+    {
+      "key": "remotePickWindowMinutes",
+      "type": "int",
+      "section": "Guest remote",
+      "label": "Window (minutes)",
+      "default": 10
+    },
+    {
+      "key": "singleUse",
+      "type": "bool",
+      "section": "Downloads",
+      "label": "Single use downloads",
+      "description": "Delete a song's file after it has been sung, and download it again the next time it is queued.",
+      "default": true
+    }
+  ],
+  "buttons": [
+    {
+      "key": "session",
+      "label": "Sign in",
+      "style": "primary",
+      "icon": "box-arrow-in-right"
+    }
+  ],
+  "qrCode": {
+    "label": "KaraFun guest sign-up"
+  }
+}

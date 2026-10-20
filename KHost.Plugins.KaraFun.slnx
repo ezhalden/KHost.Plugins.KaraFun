@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/KHost.Plugins.KaraFun/KHost.Plugins.KaraFun.csproj" />
+  </Folder>
+
+  <Folder Name="/tests/">
+    <Project Path="tests/KHost.Plugins.KaraFun.Tests/KHost.Plugins.KaraFun.Tests.csproj" />
+  </Folder>
+</Solution>
