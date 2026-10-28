@@ -1,0 +1,759 @@
+syntax = "proto3";
+
+package kcs;
+
+option csharp_namespace = "KHost.Plugins.KaraFun.Client.Kcs";
+
+import "google/protobuf/timestamp.proto";
+
+// The KaraFun Control System wire schema, transcribed from the shipped desktop build (2.17.2
+// build 3426) as recorded in the protocol notes kept outside this repo.
+//
+// Every field number here is read from that build's own name maps, and NOT ONE OF THEM MAY BE
+// INFERRED FROM DECLARATION ORDER: `socket` is field 2 in Message.Request, 3 in Message.Response
+// and 1 in Message.Event; remote.Event puts `playerJoin`/`lastPlayerLeft` at 7/8, before
+// `configurationUpdate` at 9; Models_Error.TypeEnum skips raw value 2 entirely. A number guessed
+// from the order the cases are listed in compiles, sends, and is silently wrong on the wire.
+//
+// Transcribed in full rather than trimmed to what is handled: a domain left out of the envelope
+// would have to be a reserved number, and a later hand-added case is exactly how the wrong number
+// gets in. Swift's nested `Domain_Models_X` names are flattened to `DomainX`.
+
+// ---------------------------------------------------------------------------
+// Envelope
+// ---------------------------------------------------------------------------
+
+message Message {
+  oneof type {
+    Request request = 1;
+    Response response = 2;
+    Event event = 3;
+  }
+
+  // `id` correlates a request with its response, and the host echoes it back unchanged. An Event
+  // has none: it is a complete snapshot, answering nothing.
+  message Request {
+    uint64 id = 1;
+    oneof domain {
+      SocketRequest socket = 2;
+      PlayerRequest player = 3;
+      RemoteRequest remote = 4;
+      SocialRequest social = 5;
+      BusinessRequest business = 6;
+      QuizRequest quiz = 7;
+      AuthRequest auth = 8;
+      ActivityRequest activity = 9;
+    }
+  }
+
+  // `error` is field 2 here and nowhere else — a failure is a response shape, never an event.
+  message Response {
+    uint64 id = 1;
+    oneof domain {
+      ModelsError error = 2;
+      SocketResponse socket = 3;
+      PlayerResponse player = 4;
+      RemoteResponse remote = 5;
+      SocialResponse social = 6;
+      BusinessResponse business = 7;
+      QuizResponse quiz = 8;
+      AuthResponse auth = 9;
+      ActivityResponse activity = 10;
+    }
+  }
+
+  message Event {
+    oneof domain {
+      SocketEvent socket = 1;
+      PlayerEvent player = 2;
+      RemoteEvent remote = 3;
+      ModelsNotification notification = 4;
+      QuizEvent quiz = 5;
+      SingEvent sing = 6;
+      ActivityEvent activity = 7;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// socket
+// ---------------------------------------------------------------------------
+
+message SocketEvent {
+  oneof type {
+    // The gate: the socket is connected but inert until this arrives, and nothing may be sent
+    // before it.
+    ModelsEmpty authenticated_event = 1;
+  }
+}
+
+message SocketRequest {
+  oneof type {
+    ModelsEmpty ping = 1;
+    ModelsEmpty timestamp = 2;
+    ModelsEmpty get_capacities = 3;
+  }
+}
+
+message SocketResponse {
+  oneof type {
+    ModelsEmpty ping = 1;
+    SocketTimestampResponse timestamp = 2;
+    SocketGetCapacitiesResponse get_capacities = 3;
+  }
+}
+
+message SocketGetCapacitiesResponse {
+  SocketCapacities capacities = 1;
+}
+
+message SocketTimestampResponse {
+  google.protobuf.Timestamp timestamp = 1;
+}
+
+message SocketCapacities {
+  ModelsActivableEnum all_singer_rotation_groups_queue_for_admins = 1;
+  ModelsActivableEnum can_handle_community_add_to_queue = 2;
+  ModelsActivableEnum can_handle_quiz_add_to_queue = 3;
+}
+
+// ---------------------------------------------------------------------------
+// auth
+// ---------------------------------------------------------------------------
+
+message AuthRequest {
+  oneof type {
+    ModelsEmpty process_remote_login = 1;
+  }
+}
+
+message AuthResponse {
+  oneof type {
+    ModelsEmpty process_remote_login = 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// remote — who is in the room
+// ---------------------------------------------------------------------------
+
+message RemoteEvent {
+  oneof type {
+    RemoteUserJoinedEvent user_joined = 1;
+    RemoteUserLeftEvent user_left = 2;
+    RemoteUserUpdateEvent user_update = 3;
+    RemoteUsernameUpdateEvent username_update = 4;
+    RemotePermissionsUpdateEvent permissions_update = 5;
+    RemotePreferencesUpdateEvent preferences_update = 6;
+    // 7 and 8 sit before 9 on the wire despite being listed last.
+    ModelsEmpty player_join = 7;
+    ModelsEmpty last_player_left = 8;
+    RemoteConfigurationUpdateEvent configuration_update = 9;
+  }
+}
+
+message RemoteRequest {
+  oneof type {
+    ModelsEmpty user_list = 1;
+    RemoteSetRoleRequest set_role = 2;
+    ModelsEmpty get_permissions = 3;
+    RemoteSetPermissionsRequest set_permissions = 4;
+    ModelsEmpty get_preferences = 5;
+    ModelsEmpty get_configuration = 6;
+    RemoteSetPreferencesRequest set_preferences = 7;
+    RemoteUsernameUpdateRequest username_update = 8;
+  }
+}
+
+message RemoteResponse {
+  oneof type {
+    RemoteUserListResponse user_list = 1;
+    RemoteGetPermissionsResponse get_permissions = 2;
+    ModelsEmpty set_permissions = 3;
+    ModelsEmpty set_role = 4;
+    RemoteGetPreferencesResponse get_preferences = 5;
+    ModelsEmpty set_preferences = 6;
+    RemoteGetConfigurationResponse get_configuration = 7;
+    RemoteUsernameUpdateEvent username_update = 8;
+  }
+}
+
+message RemoteUser {
+  string id = 1;
+  string name = 2;
+  Role role = 3;
+  string remote_id = 4;
+
+  enum Role {
+    UNKNOWN = 0;
+    DEFAULT = 1;
+    ADMIN = 2;
+  }
+}
+
+// Advertised, never enforced: the desktop grants these on join and then reads none of them, so
+// channel membership is the only real boundary. Anything on the channel may add to the queue.
+message RemotePermissions {
+  bool manage_queue = 1;
+  bool view_queue = 2;
+  bool add_to_queue = 3;
+  bool manage_playback = 4;
+  bool manage_volumes = 5;
+  bool send_photos = 6;
+  RemoteShownTypes shown_types = 7;
+}
+
+message RemoteShownTypes {
+  bool karaoke = 1;
+  bool community = 2;
+  bool quiz = 3;
+  bool battle = 4;
+}
+
+message RemotePreferences {
+  bool ask_options = 1;
+  bool singer_rotation = 2;
+}
+
+message RemoteConfiguration {
+  uint32 pitch_step = 1;
+  uint32 tempo_step = 2;
+  int32 pitch_min = 3;
+  int32 tempo_min = 4;
+  int32 pitch_max = 5;
+  int32 tempo_max = 6;
+  RemoteCompatibleMods compatible_mods = 7;
+}
+
+message RemoteCompatibleMods {
+  repeated PlayerSongModBattle.Subtype battle = 1;
+}
+
+message RemoteConfigurationUpdateEvent { RemoteConfiguration configuration = 1; }
+message RemoteGetConfigurationResponse { RemoteConfiguration configuration = 1; }
+message RemoteGetPermissionsResponse { RemotePermissions permissions = 1; }
+message RemoteGetPreferencesResponse { RemotePreferences preferences = 1; }
+message RemotePermissionsUpdateEvent { RemotePermissions permissions = 1; }
+message RemotePreferencesUpdateEvent { RemotePreferences preferences = 1; }
+message RemoteSetPermissionsRequest { RemotePermissions permissions = 1; }
+message RemoteSetPreferencesRequest { RemotePreferences preferences = 1; }
+message RemoteUserJoinedEvent { RemoteUser user = 1; }
+message RemoteUserUpdateEvent { RemoteUser user = 1; }
+message RemoteUserLeftEvent { string user_id = 1; }
+message RemoteUserListResponse { repeated RemoteUser users = 1; }
+message RemoteUsernameUpdateEvent { string username = 1; }
+message RemoteUsernameUpdateRequest { string username = 1; }
+
+message RemoteSetRoleRequest {
+  string user_id = 1;
+  RemoteUser.Role role = 2;
+}
+
+// ---------------------------------------------------------------------------
+// player — the queue itself
+// ---------------------------------------------------------------------------
+
+message PlayerRequest {
+  oneof type {
+    ModelsEmpty status = 1;
+    ModelsEmpty queue = 2;
+    ModelsEmpty play = 3;
+    ModelsEmpty pause = 4;
+    ModelsEmpty next = 5;
+    PlayerAddToQueueRequest add_to_queue = 6;
+    PlayerRemoveFromQueueRequest remove_from_queue = 7;
+    PlayerMoveInQueueRequest move_queue = 8;
+    PlayerSetQueueItemOptionsRequest set_queue_item_options = 9;
+    PlayerPitchRequest pitch = 10;
+    PlayerTempoRequest tempo = 11;
+    PlayerTrackVolumeRequest track_volume = 12;
+    ModelsEmpty groups = 13;
+    PlayerSongModRequest song_mod = 14;
+  }
+}
+
+message PlayerResponse {
+  oneof type {
+    PlayerStatusResponse status = 1;
+    PlayerQueueResponse queue = 2;
+    ModelsEmpty play = 3;
+    ModelsEmpty pause = 4;
+    ModelsEmpty next = 5;
+    ModelsEmpty add_to_queue = 6;
+    ModelsEmpty remove_from_queue = 7;
+    ModelsEmpty move_queue = 8;
+    ModelsEmpty set_queue_item_options = 9;
+    ModelsEmpty pitch = 10;
+    ModelsEmpty tempo = 11;
+    ModelsEmpty track_volume = 12;
+    PlayerGroupsResponse groups = 13;
+    ModelsEmpty song_mod = 14;
+  }
+}
+
+message PlayerEvent {
+  oneof type {
+    PlayerStatusEvent status = 1;
+    PlayerQueueEvent queue = 2;
+    PlayerBackgroundEvent background = 3;
+    PlayerGroupsEvent groups = 4;
+  }
+}
+
+// A guest's pick. `song` and `quiz` are one choice, but they are transcribed as two plain fields
+// because the authoritative table lists them as such — and reading them apart decodes a real
+// oneof identically, where the reverse would not.
+message PlayerAddToQueueRequest {
+  PlayerSongIdentifier song = 1;
+  uint32 position = 2;
+  PlayerSongOptions options = 3;
+  PlayerQuizIdentifier quiz = 4;
+  string remote_id = 5;
+}
+
+message PlayerRemoveFromQueueRequest { string queue_item_id = 1; }
+message PlayerMoveInQueueRequest {
+  string queue_item_id = 1;
+  uint32 to = 2;
+}
+message PlayerSetQueueItemOptionsRequest {
+  string queue_item_id = 1;
+  PlayerSongOptions options = 2;
+}
+message PlayerPitchRequest { int32 pitch = 1; }
+message PlayerTempoRequest { int32 tempo = 1; }
+message PlayerSongModRequest { uint32 id = 1; }
+message PlayerSendPhotoRequest { string url = 1; }
+message PlayerTrackVolumeRequest {
+  PlayerTrack.TypeEnum type = 1;
+  uint32 volume = 2;
+}
+
+message PlayerStatusEvent { PlayerStatus status = 1; }
+message PlayerStatusResponse { PlayerStatus status = 1; }
+message PlayerQueueEvent { PlayerQueue queue = 1; }
+message PlayerQueueResponse { PlayerQueue queue = 1; }
+message PlayerBackgroundEvent { ModelsColor color = 1; }
+message PlayerGroupsEvent { repeated PlayerGroup groups = 1; }
+message PlayerGroupsResponse { repeated PlayerGroup groups = 1; }
+
+message PlayerQueue { repeated PlayerQueueItem items = 1; }
+
+message PlayerQueueItem {
+  string id = 1;
+  oneof content {
+    PlayerQueueSong song = 2;
+    PlayerQueueQuiz quiz = 3;
+  }
+  PlayerQueueItemSingerRotation singer_rotation = 4;
+  // Cleared on every item this build sends: order is array position, never this.
+  uint32 index = 5;
+}
+
+message PlayerQueueItemSingerRotation {
+  string group_id = 1;
+  bool unbound = 2;
+}
+
+message PlayerQueueSong {
+  PlayerSongIdentifier id = 1;
+  string title = 2;
+  string artist = 3;
+  repeated PlayerTrack song_tracks = 4;
+  PlayerSongOptions options = 5;
+}
+
+message PlayerQueueQuiz {
+  PlayerQuizIdentifier id = 1;
+  string title = 2;
+  string description = 3;
+}
+
+message PlayerSongIdentifier {
+  TypeEnum type = 1;
+  uint32 id = 2;
+
+  // The catalog and community id spaces do not overlap in meaning: the same number is a different
+  // song in each.
+  enum TypeEnum {
+    UNKNOWN = 0;
+    CATALOG = 1;
+    COMMUNITY = 2;
+  }
+}
+
+message PlayerQuizIdentifier {
+  TypeEnum type = 1;
+  uint32 id = 2;
+
+  enum TypeEnum {
+    UNKNOWN = 0;
+    CATALOG = 1;
+  }
+}
+
+message PlayerSongOptions {
+  // Who the pick is for. Blank falls back to the name the guest joined under.
+  string singer = 1;
+  int32 pitch = 2;
+  int32 tempo = 3;
+  repeated PlayerTrackVolume tracks = 4;
+  PlayerSongMod mod = 5;
+}
+
+message PlayerSongMod {
+  uint32 id = 1;
+  string caption = 2;
+  SongModData data = 3;
+
+  message SongModData {
+    oneof type {
+      PlayerSongModBattle battle = 1;
+    }
+  }
+}
+
+message PlayerSongModBattle {
+  Subtype subtype = 1;
+
+  enum Subtype {
+    UNKNOWN = 0;
+    FREE_FOR_ALL = 1;
+    VERSUS = 2;
+  }
+}
+
+message PlayerStatus {
+  State state = 1;
+  int32 tempo = 2;
+  int32 pitch = 3;
+  repeated PlayerTrackVolume tracks = 4;
+  PlayerQueueItem current = 5;
+  ActivityActivity activity = 6;
+
+  enum State {
+    UNKNOWN = 0;
+    IDLE = 1;
+    LOADING = 2;
+    READY = 3;
+    PLAYING = 4;
+    PAUSED = 5;
+  }
+}
+
+message PlayerTrack {
+  TypeEnum type = 1;
+  string caption = 2;
+  ModelsColor color = 3;
+
+  enum TypeEnum {
+    UNKNOWN = 0;
+    GENERAL = 1;
+    MICROPHONE = 2;
+    WAITING_MUSIC = 3;
+    BACKING_VOCAL = 4;
+    LEAD_VOCAL_A = 5;
+    LEAD_VOCAL_B = 6;
+  }
+}
+
+message PlayerTrackVolume {
+  PlayerTrack track = 1;
+  uint32 volume = 2;
+}
+
+message PlayerGroup {
+  string id = 1;
+  string name = 2;
+  repeated string remote_ids = 3;
+}
+
+// ---------------------------------------------------------------------------
+// quiz
+// ---------------------------------------------------------------------------
+
+message QuizRequest {
+  oneof type {
+    QuizUserAnswerRequest user_answer = 1;
+    QuizGetStatsRequest get_stats = 2;
+    ModelsEmpty resend_scene_event = 3;
+    ModelsEmpty start_interlude = 4;
+    ModelsEmpty stop_interlude = 5;
+  }
+}
+
+message QuizResponse {
+  oneof type {
+    ModelsEmpty user_answer = 1;
+    QuizGetStatsResponse get_stats = 2;
+    ModelsEmpty resend_scene_event = 3;
+    ModelsEmpty start_interlude = 4;
+    ModelsEmpty stop_interlude = 5;
+  }
+}
+
+message QuizEvent {
+  oneof type {
+    ModelsEmpty ready_scene = 1;
+    QuizQuestionSceneEvent question_scene = 2;
+    QuizRightAnswerSceneEvent right_answer_scene = 3;
+    QuizRankingSceneEvent ranking_scene = 4;
+    QuizEndSceneEvent end_scene = 5;
+    QuizStatsUpdateEvent stats_update = 6;
+    ModelsEmpty interlude_scene = 7;
+  }
+}
+
+message QuizQuestion {
+  uint32 question_number = 1;
+  repeated QuizQuestionAnswer answers = 2;
+}
+
+message QuizQuestionAnswer {
+  uint32 answer_id = 1;
+  ModelsColor color = 2;
+}
+
+message QuizSubquestion {
+  uint32 subquestion_number = 1;
+  google.protobuf.Timestamp start_date_time = 2;
+}
+
+message QuizUserSelection {
+  uint32 answer_id = 1;
+  uint32 subquestion_number = 2;
+}
+
+message QuizUserStats {
+  uint32 score = 1;
+  uint32 rank = 2;
+  string user_id = 3;
+}
+
+message QuizUserAnswerRequest {
+  string user_id = 1;
+  uint32 question_number = 2;
+  QuizUserSelection selection = 3;
+}
+
+message QuizGetStatsRequest { repeated string user_ids = 1; }
+message QuizGetStatsResponse { repeated QuizUserStats stats = 1; }
+message QuizEndSceneEvent { repeated QuizUserStats stats = 1; }
+// Singular, unlike every other stats field here.
+message QuizStatsUpdateEvent { QuizUserStats stats = 1; }
+
+message QuizQuestionSceneEvent {
+  QuizQuestion question = 1;
+  repeated QuizSubquestion subquestions = 2;
+  QuizUserSelection user_selection = 3;
+}
+
+message QuizRightAnswerSceneEvent {
+  QuizQuestion question = 1;
+  uint32 right_answer_id = 2;
+  QuizUserSelection user_selection = 3;
+  bool can_start_interlude = 4;
+}
+
+// 2 and 3 are genuinely absent from the build's map; the gap is transcribed, not a mistake.
+message QuizRankingSceneEvent {
+  repeated QuizUserStats stats = 1;
+  bool can_start_interlude = 4;
+}
+
+// ---------------------------------------------------------------------------
+// sing
+// ---------------------------------------------------------------------------
+
+message SingEvent {
+  oneof type {
+    SingSangDataEvent sang_data = 1;
+    SingSongStartEvent song_start = 2;
+    SingSongEndEvent song_end = 3;
+  }
+}
+
+message SingNote {
+  uint32 note = 1;
+  uint32 count = 2;
+}
+
+message SingUserStats {
+  uint32 score = 1;
+  uint32 rank = 2;
+  string remote_id = 3;
+}
+
+message SingSangDataEvent {
+  DetectedNotes detected_notes = 1;
+  DetectedTransients detected_transients = 2;
+  string remote_id = 3;
+
+  message DetectedNotes {
+    uint32 start_time = 1;
+    uint32 step = 2;
+    repeated SingNote notes = 3;
+  }
+
+  message DetectedTransients {
+    repeated uint32 times = 1;
+  }
+}
+
+message SingSongStartEvent { google.protobuf.Timestamp start_date_time = 1; }
+message SingSongEndEvent { repeated SingUserStats stats = 1; }
+
+// ---------------------------------------------------------------------------
+// activity
+// ---------------------------------------------------------------------------
+
+message ActivityRequest {
+  oneof type {
+    ModelsEmpty user_list = 1;
+    ActivityUserQueryRequest user_query = 2;
+    ActivityEnrollRequest enroll = 3;
+    ActivityWithdrawRequest withdraw = 4;
+    ModelsEmpty resend_activity_event = 5;
+  }
+}
+
+message ActivityResponse {
+  oneof type {
+    ActivityUserListResponse user_list = 1;
+    ActivityUserQueryResponse user_query = 2;
+    ModelsEmpty enroll = 3;
+    ModelsEmpty withdraw = 4;
+    ModelsEmpty resend_activity_event = 5;
+  }
+}
+
+message ActivityEvent {
+  oneof type {
+    ActivityUserActivityUpdate user_activity_update = 1;
+  }
+}
+
+message ActivityActivity {
+  State state = 1;
+  bool can_enroll = 2;
+  bool can_withdraw = 3;
+  repeated ActivityTeam teams = 4;
+
+  enum State {
+    UNKNOWN = 0;
+    LOBBY = 1;
+    IN_PROGRESS = 2;
+    ENDED = 3;
+  }
+}
+
+message ActivityTeam {
+  string id = 1;
+  string name = 2;
+  ModelsColor color = 3;
+}
+
+message ActivityUserActivity {
+  string remote_id = 1;
+  bool enrolled = 2;
+  string team_id = 3;
+}
+
+message ActivityEnrollRequest {
+  string remote_id = 1;
+  string team_id = 2;
+}
+
+message ActivityWithdrawRequest { string remote_id = 1; }
+message ActivityUserQueryRequest { repeated string remote_ids = 1; }
+message ActivityUserQueryResponse { repeated ActivityUserActivity users = 1; }
+message ActivityUserListResponse { repeated ActivityUserActivity users = 1; }
+message ActivityUserActivityUpdate { repeated ActivityUserActivity users = 1; }
+
+// ---------------------------------------------------------------------------
+// social / business
+// ---------------------------------------------------------------------------
+
+message SocialRequest {
+  oneof type {
+    SocialSendPhotoRequest send_photo = 1;
+  }
+}
+
+message SocialResponse {
+  oneof type {
+    ModelsEmpty send_photo = 1;
+  }
+}
+
+message SocialSendPhotoRequest { string url = 1; }
+
+message BusinessRequest {
+  oneof type {
+    BusinessSessionRequest session = 1;
+    BusinessBannerRequest banner = 2;
+  }
+}
+
+message BusinessResponse {
+  oneof type {
+    ModelsEmpty session = 1;
+    ModelsEmpty banner = 2;
+  }
+}
+
+message BusinessBannerRequest { string message = 1; }
+message BusinessSessionRequest { BusinessSession session = 1; }
+
+message BusinessSession {
+  string id = 1;
+  string first_name = 2;
+  google.protobuf.Timestamp end_date = 3;
+  string language = 4;
+}
+
+// ---------------------------------------------------------------------------
+// shared models
+// ---------------------------------------------------------------------------
+
+message ModelsEmpty {}
+
+message ModelsColor {
+  uint32 red = 1;
+  uint32 green = 2;
+  uint32 blue = 3;
+  uint32 alpha = 4;
+}
+
+message ModelsError {
+  TypeEnum type = 1;
+  string message = 2;
+
+  // Raw value 2 is unused. Numbering these in declaration order sends FORBIDDEN as BAD_CONTENT
+  // and fails silently.
+  enum TypeEnum {
+    UNKNOWN = 0;
+    NOT_SUPPORTED = 1;
+    FORBIDDEN = 3;
+    BAD_CONTENT = 4;
+    TARGET_UNREACHABLE = 5;
+    CLOSED_CONNECTION = 6;
+  }
+}
+
+message ModelsNotification {
+  Display display = 1;
+  string message = 2;
+
+  enum Display {
+    UNKNOWN = 0;
+    ALERT = 1;
+    TOAST = 2;
+  }
+}
+
+// A tri-state-capable stand-in for a bool; the capacities are all reported off by this build.
+enum ModelsActivableEnum {
+  DISABLED = 0;
+  ENABLED = 1;
+}
