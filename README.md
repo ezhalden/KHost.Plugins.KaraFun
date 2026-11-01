@@ -1,130 +1,129 @@
-# KHost.Plugins.KaraFun
+<img src=".github/preview.png" alt="KaraFun for KHost: your KaraFun catalog in KHost, multitrack and all. The room requests songs from their phones." width="100%">
 
-KaraFun media provider for KHost. Searches a host's own KaraFun catalog from the
-console's Song Search panel, downloads the chosen track, and enqueues it for the selected singer.
+[![Release](https://img.shields.io/github/v/release/ezhalden/KHost.Plugins.KaraFun?style=for-the-badge&color=E5337A&labelColor=141414)](https://github.com/ezhalden/KHost.Plugins.KaraFun/releases/latest)
+[![KHost plugin API 8](https://img.shields.io/badge/KHost_plugin_API-8-36D1B6?style=for-the-badge&labelColor=141414)](#build-it-yourself)
+[![.NET 10](https://img.shields.io/badge/.NET-10-36D1B6?style=for-the-badge&labelColor=141414)](https://dotnet.microsoft.com/)
+[![Windows, macOS, Linux](https://img.shields.io/badge/runs_on-Win_%7C_Mac_%7C_Linux-36D1B6?style=for-the-badge&labelColor=141414)](#install)
+[![Needs a KaraFun account](https://img.shields.io/badge/needs-KaraFun_account-36D1B6?style=for-the-badge&labelColor=141414)](https://www.karafun.com/)
 
-> **A kit is handed over as stems; the host does the rest.** The library row is the downloaded
-> `.kit`, exactly as KaraFun served it, and it is the only file this plugin reads or writes. Its
-> renderer (`KaraFunKitRenderer`, the `IMediaRenderer`) demuxes the kit's Ogg stems into the
-> host's stream session and answers with them — for every display, every key and every tempo,
-> each at the level the host's mix asked for. It makes no mixing decision: KHost plays the stems
-> as they are on a display that mixes, and encodes one stream from those same stems for a display
-> that cannot (a Cast receiver), for a key or tempo change, and for a display that wants the words
-> burned in. The words come from this plugin's `ITimedLyricsProvider`, read out of the kit's own
-> timing stream; a screen draws them itself and the host paints them into its encode for a display
-> that cannot. The plugin paints nothing and runs no ffmpeg. The service side — search, download,
-> sign-in, the guest remote and the playback gate — is `KaraFunMediaProvider`.
+# KaraFun for KHost
 
-## What it does, and what it deliberately does not
+Bring your KaraFun account into KHost. Search the KaraFun catalog from the **Song Search** panel,
+queue a song for a singer, and KHost plays it with its own player: every instrument on its own
+track, with key and tempo changes and the words timed to the music.
 
-- **Search** calls `search/top` then `song/info` for full records — read-only, no download. The
-  `top` section answers with a mixed list; only its `<song>` hits are taken.
-- **Community search** is offered as a last row, "Search Community Songs", under every catalog
-  search. Clicking it re-runs the same words against `search/community` → `community/info`
-  — KaraFun's user-uploaded karaoke, which is a **separate id space**: community id
-  6229 is a different track from catalog id 6229, so community rows carry a `community:` prefix,
-  request through `community/request`, and download to their own `community-<id>.kit` file. One
-  click buys one community search; the next plain search goes back to the catalog.
-  **Confidence:** the `<community id meta/>` result element is live-confirmed (it appears in a
-  captured `search/top` list), but the `community/*` endpoint family is read from the binary and
-  was never captured on the wire. The client therefore parses
-  those responses leniently and assumes nothing about the community stream URL's shape. Treat the
-  first live community search and download as a test, not a formality.
-- **Enqueue** downloads the `.kit` (the same CDN object the app itself fetches) and imports it
-  as the library row, unchanged. At play time its stems go to KHost as they are, and KHost asks
-  this plugin for the timing. That plays the track through KHost's own player rather than KaraFun's, which is a
-  deliberate choice made with the tradeoff understood: KaraFun's own subscription/device-slot
-  enforcement governs the app, not this path.
-- **Playback is gated on a live account.** A `.kit` answers
-  `IMediaPlaybackGate.Claims`/`IMediaProbe.CanProbe`, and nothing else does. KHost asks this
-  plugin before playing one and allows it only while signed in —
-  signing out mid-show flashes "Sign in to KaraFun to play this track." "Valid account" here means
-  the in-memory session, not a fresh server check: the gate runs on every load and a live show
-  cannot wait on the network. Tighten it to a `session/info` entitlement check in `CanAsync` if a
-  stale session is ever worth the round trip.
-- **The account is remembered, and the session renews itself.** Sign in from either the Plugins
-  page — the plugin's row carries a single **Sign in / Sign out** button that toggles with the
-  session — or the "Sign in to KaraFun" row that search shows until a session exists. Both prompt
-  for an email/password through KHost's `IInteractionDispatcher` (a `TextPromptRequest`).
-  What is kept afterwards is the login and the `pwd` value — md5 of the substituted password, which
-  is the only form `session/open` is ever given. The typed password is never written anywhere.
-  **A session key is not a credential.** KaraFun's expire on their own, nothing renews them, and
-  there is no refresh endpoint; the real client's answer to `INVALID_SESSION` / `action="restart"`
-  is another `session/open`, built by the same code that opens one at launch. So this does the
-  same: a dead key is re-opened from what is stored, carrying `last_ses` for continuity, and only a
-  credential the server actually *refuses* signs the host out — with a warning naming the reason.
-  A dropped connection keeps the session rather than making a venue sign in because a router
-  blinked.
-  **Be clear about what that stores.** The `pwd` hash is password-*equivalent*: anything holding it
-  can open sessions on the account. It is kept in KHost's cache rather than in plugin settings, so
-  it is off the Plugins page and out of `plugins.json`, but it is plaintext JSON on the venue's
-  disk. An OS keychain would be better and is not portably reachable from a plugin. The alternative
-  is prompting every launch, which a venue whose first singer arrives through the remote cannot
-  use — nobody is standing at the console to answer it. Signing out drops the credential with the
-  session. A host with no KaraFun account yet signs up on KaraFun's own site; the plugin offers no
-  in-app path to that.
-- **The room's picks arrive over KaraFun's Control System socket (KCS).** Once a session settles
-  the plugin connects to the `kcs_url` that `session/info` hands back — binary Protocol Buffers,
-  one message per frame, `kcpp` subprotocol, the URL used byte for byte because the token inside it
-  is the socket's only identity. A guest's `addToQueue` becomes a singer and a song on KHost's
-  queue, under the singer it names — never under whoever the console has selected.
-  **The phone is asked before the name.** A pick carrying a `remoteId` KHost already knows goes
-  straight to the singer it named last time, whatever was typed this time; only on a miss does the
-  name on the pick (or failing that the name they joined the room under) decide, and the phone is
-  then tied to whoever that turned out to be so their next pick skips the name entirely. Those ties
-  are **ephemeral** `KHostUser.ForeignKeys`, because a KaraFun `remoteId` names a pairing rather
-  than a person. **Leaving is not unpairing**: a phone leaves whenever it locks, so a tie survives
-  the guest leaving, and a join (or the room's guest list, on a reconnect or a restart) ties a
-  returning guest back by `remoteId` plus nickname without waiting for a pick. The same `remoteId`
-  under a different nickname is somebody else, and the tie moves. The plugin clears its own ties when the account signs out, when the venue turns the guest
-  remote off, and when the room is new: a room is its sign-up link, which a restart reuses and a
-  session renewal has been seen to replace. Across nights a regular is matched by name again — which is all
-  KaraFun's own host does, its singer history keying on a normalised name and holding no id at all.
-  The schema is transcribed from the shipped desktop build's own field
-  numbers, none of which follow declaration order.
-  **Limits:** a guest can only add. `player.status` answers idle and `player.queue` an empty
-  queue, so a guest cannot see their song land, and removing, reordering and transport controls
-  are refused. A pick's pitch, tempo and per-stem options are dropped. All are logged in `TODO.md`.
-- **Anything on the channel may queue.** The protocol's permissions are advertised and never
-  enforced — KaraFun's own desktop reads none of them — so the code on the screen is the whole
-  access boundary, and taking it down is the only way to stop a room. The one brake is a
-  per-guest rate limit (the `remotePickLimit` and `remotePickWindowMinutes` settings).
-- **No "signup events from KaraFun's server."** There is no webhook, callback or push API for
-  being told when someone completes a signup, only the in-app REST/WebSocket surfaces the desktop
-  client itself uses. Nothing here polls or listens for one.
+Guests can join too. Put the sign-up QR code on screen, and anyone in the room can request songs
+from their phone. Each request lands on the right singer's queue.
 
-## Building
+## What you get
 
-The contracts come from the `KHost.Abstractions` and `KHost.Common` packages (0.58.0), which are not
-on nuget.org. Build them into a local feed with KHost's `./build/pack-contracts.sh` and register it
-once with `dotnet nuget add source ~/.nuget/khost-local -n khost-local`; after that no checkout of
-KHost is needed to build:
+- **Catalog search** from KHost's Song Search panel.
+- **Community search.** Every search ends with a **Search Community Songs** row that runs the same
+  words against KaraFun's user-uploaded songs. *(Least-tested part of the plugin; see
+  [Known limits](#known-limits).)*
+- **Multitrack playback.** Songs arrive as separate stems (vocals, guitar, bass, drums…), so KHost
+  can mix them, change key or tempo, and send them to a Cast screen.
+- **Synced lyrics**, taken from the song's own timing.
+- **Guest requests from phones**, with a per-guest rate limit.
+- **Stays signed in.** Sign in once; the plugin quietly renews the session when KaraFun expires it.
+
+## Install
+
+**From KHost:** open **Plugins → Available**, install **KaraFun Integration**, restart KHost.
+
+**By hand:** unzip a [release](https://github.com/ezhalden/KHost.Plugins.KaraFun/releases/latest)
+into its own folder under KHost's `plugins/` directory, enable it on the Plugins page, restart.
+
+One build covers Windows, macOS and Linux.
+
+## Getting started
+
+1. **Sign in.** Use the **Sign in** button on the plugin's row in **Plugins**, or just search; the
+   results show a "Sign in to KaraFun" row until you do. Enter your KaraFun email and password.
+2. **Search and queue.** Pick a song, hit **Enqueue**, and it downloads and joins the selected
+   singer's queue.
+3. **Let the room in (optional).** Show the **KaraFun guest sign-up** QR code on screen. Guests scan
+   it, pick a name, and request songs.
+
+No KaraFun account yet? Sign up on [karafun.com](https://www.karafun.com/) first. The plugin can't
+create one for you.
+
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| Requests per window | `5` | How many songs one guest can request per window. `0` means no limit. |
+| Window (minutes) | `10` | The window that limit counts over. |
+| Single use downloads | on | Deletes a song's file once it's been sung and nothing else in the queue needs it. It downloads again next time (you'll need to be signed in). |
+
+Changes apply right away, no restart.
+
+Your KaraFun login isn't a setting on purpose. See [Your account](#your-account).
+
+## Your account
+
+- **Playback needs you signed in.** Sign out mid-show and KaraFun songs stop with "Sign in to
+  KaraFun to play this track." The check uses the session KHost already has, so it never waits on
+  the network.
+- **Your password is never saved.** The plugin keeps your email and a hash of the password, which
+  is what KaraFun's sign-in actually uses.
+- **That hash still works like a password.** Anyone who gets it can sign in as you. It's stored as
+  plain JSON in KHost's cache folder (not in plugin settings, so it never shows on the Plugins page
+  or in `plugins.json`). The other option was asking for your password every launch, which doesn't
+  work when the first singer of the night shows up through their phone and nobody is at the
+  console. **Sign out** deletes it.
+- **Brief network drops don't sign you out.** Only KaraFun actually rejecting your login does, and
+  KHost tells you why.
+
+## Guest requests
+
+- A request goes to the singer the guest named, never to whoever happens to be selected at the
+  console.
+- **Phones are remembered for the night.** Once a phone has requested as "Maya", its next
+  requests go to Maya even if the name is typed differently. A phone locking or leaving the room
+  doesn't break that; a different name from the same phone means a different person.
+- Those links are cleared when you sign out, turn guest requests off, or a new room starts. On a
+  later night a regular is matched by name again, same as KaraFun's own app does it.
+
+> [!IMPORTANT]
+> **The QR code is the only lock on the door.** Anyone with the room's link can request songs, and
+> KaraFun's app works the same way. If it gets passed around, take the code off the screen. The
+> per-guest rate limit is the only other brake.
+
+## Known limits
+
+- **Guests can only add songs.** They can't see the queue, remove or reorder songs, or control
+  playback, and key, tempo or stem choices sent with a request are ignored.
+- **Community songs are the least-tested part.** Search results are confirmed against the live
+  service; downloading community songs hasn't been checked end to end. Some KaraFun plans may not
+  allow community songs at all, and right now that shows up as a failed download without a clear
+  message.
+- **No sign-up notifications.** KaraFun doesn't offer a way to be told when someone creates an
+  account, so the plugin doesn't try.
+
+Open items live in [`TODO.md`](TODO.md). For how it works inside, see
+[`docs/how-it-works.md`](docs/how-it-works.md).
+
+## Build it yourself
+
+You need the .NET 10 SDK plus the `KHost.Abstractions` and `KHost.Common` 0.61.0 packages. Those
+aren't on nuget.org, so build them into a local feed with KHost's `./build/pack-contracts.sh` and
+add the feed once (no KHost checkout needed after that):
+
+```bash
+dotnet nuget add source ~/.nuget/khost-local -n khost-local
+```
+
+Then:
 
 ```bash
 dotnet build KHost.Plugins.KaraFun.slnx
 dotnet test tests/KHost.Plugins.KaraFun.Tests
 ```
 
-## Installing
+To install a local build by hand, copy the entry dll, `manifest.json` and the dependency dlls into
+a folder under KHost's `plugins/` directory.
 
-From a host: Plugins, then Available, install KaraFun Integration, and restart KHost. It is one
-portable build that runs on Windows, macOS and Linux.
+---
 
-By hand: unzip a release (or copy a local build's output: entry dll, `manifest.json` and dependency
-dlls) into its own folder under KHost's `plugins/` directory, enable it on KHost's Plugins page, and
-restart KHost. There is nothing to configure before first use; searching prompts for the KaraFun
-account to sign in with.
-
-## Settings
-
-| Key | What it's for |
-|---|---|
-| `remotePickLimit` | Song requests one guest may send per window; default 5, 0 for unlimited. |
-| `remotePickWindowMinutes` | The window `remotePickLimit` counts over; default 10. |
-| `singleUse` | On by default. A downloaded song's file is deleted once it has been sung and nothing queued still needs it, and is downloaded again the next time the song is queued (needs a signed-in account). |
-
-Settings are read live: the plugin entry point names `KaraFunSettings` through `IPlugin<TSettings>`, and the
-provider reads `IOptionsMonitor<KaraFunSettings>.CurrentValue` at each use, so a save applies to the next
-search, pick or download with no restart.
-
-The KaraFun login itself is deliberately not a setting — see "What it does" above.
+<sub>Not affiliated with or endorsed by KaraFun. You need your own KaraFun subscription, and you're responsible for using it within KaraFun's terms.</sub>
